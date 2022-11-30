@@ -1,0 +1,193 @@
+---
+title: "Appendix"
+author: "Yuhong Hu"
+output: 
+    html_document:
+        toc: TRUE
+        toc_float: TRUE
+---
+
+<br>
+Welcome to my PM 566 Final Project Appendix.
+
+<br>
+
+```{r setup, message=FALSE, echo=FALSE, warning=FALSE}
+
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(tidyr)
+library(data.table)
+library(lubridate)
+library(skimr)
+library(table1)
+library(kableExtra)
+library(nlme)
+library(broom.mixed)
+library(dotwhisker)
+library(ggeffects)
+library(sjPlot)
+library(knitr)
+
+# INITALIZE CODE CHUNK OPTIONS
+opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  eval=TRUE,
+  echo = FALSE,
+  cache = FALSE,
+  fig.width = 7, 
+  fig.align = 'center',
+  fig.asp = 0.618,
+  out.width = "700px",
+  class.source = "code-r")
+```
+
+# Dataset
+
+**The key variables were as followed.**
+
+- `ID`: subject ID
+
+- `DATE`: date as an integer (origin = 1/1/1960)
+
+- `VISIT`: visit number
+
+- `YEAR`: year
+
+- `WARMCOLD`: Warm/Cold season (1=warm, 0=cold)
+
+- `WKDAY`: day of the week
+
+- `HDL`: high-density lipoproteins
+
+- `AGE`: age in years
+
+- `RACE`: Race (1=white, 2=black, 3 = hispanic white, 4 = hispanic black, 5=american indian)
+
+- `DIABETE`: Physician-diagnosed DM (0=no, 1=yes)
+
+- `BMI`: Body Mass Index (kg/m2)
+
+- `SMK`:Cigarette smoking status (1=never, 3=current, 4=former)
+
+- `HT`: hypertension (1=yes, 0=no)
+
+- `STATIN`: Taking statin medication at that visit? (0=no, 1=yes)
+
+- `BC24H`: Black carbon level on the same day of each visit
+
+- `BCD1`: Black carbon level on the previous 1 day of each visit
+
+- `BCD2`: Black carbon level on the previous 2 days of each visit
+
+- `TEMPC24H`: Ambient temperature on the same day of each visit
+
+- `TMPCD1`: Ambient temperature on the previous 1 day (lag 1) of each visit
+
+- `TMPCD2`: Ambient temperature on the previous two days (lag 2) of each visit
+
+For further exploration of adjusted association of interest, we performed linear mixed effect model with the simplest distributed lag structure (simultaneous adjustment), to account for correlation between repeated measure and lag effects. For parsimony, we simply adjusted for covariates that we identified as major risk factors in the NAS population in the previous section.
+
+```{r dataset,results='hide'}
+#load data
+nas_hdl <- readRDS("data/nas_hdl.rds")
+nas <- na.omit(nas_hdl)
+# Level and label the categorical variable for plotting
+quantile(nas$AGE)
+nas <- nas %>% 
+  mutate(hdlcat = factor(case_when(HDL>=40~2,HDL<40~1),
+                         levels = c(1,2),
+                         labels=c('At risk (<40)','Normal (>=40)')),
+         bmicat = factor(case_when(BMI>30~4,(BMI>25&BMI<=30)~2,(BMI>18.5&BMI<=25)~2,BMI<=18.5~1),
+                         levels = c(1,2,3,4),
+                         labels=c('Underweight','Normal','Overweight','Obese')),
+         agecat = factor(case_when(AGE>=73~2,AGE<73~1),
+                         levels = c(1,2),
+                         labels=c('<73 yrs','>=73 yrs')))
+
+nas <- nas %>% 
+  mutate(WARMCOLD = factor(WARMCOLD,levels = c(0,1),labels = c('Cold','Warm')),
+         DIABETE = factor(DIABETE,levels = c(0,1),labels = c('No','Yes')),
+         STATIN = factor(STATIN,levels = c(0,1),labels = c('No','Yes')),
+         HT = factor(HT,levels = c(0,1),labels = c('No','Yes')),
+         RACE = factor(RACE,levels = c(1,2,3,4,5),labels = c('White','Black','Hispanic White','Hispanic Black','American Indian')),
+         SMK = factor(SMK,levels = c(1,3,4),labels = c('Never','Current','Former')))
+
+# Label variable
+label(nas$WARMCOLD) <- 'SEASON'
+label(nas$STATIN) <- 'STATIN USE'
+label(nas$SMK) <- 'SMOKING STATUS'
+label(nas$BC24H) <- 'SAME DAY BLACK CARBON (ug/m3)'
+label(nas$TEMPC24H) <- 'SAME DAY TEMPERATURE (°C)'
+label(nas$AGE) <- 'AGE (years)'
+label(nas$BMI) <- 'BMI (kg/m2)'
+```
+
+# Results based on linear mixed effect model
+
+## Effect and lag effect of daily ambient black carbon
+
+Significant effect and lag effects of black carbon level on HDL level were observed. For each lag, black carbon level was inversely associated with HDL. The decrease in HDL was more likely to be associated with the ambient black carbon level on the day of visit compared with the black carbon level on the days before the visits.
+
+```{r modelBC}
+mod1 <- lme(log(HDL)~BC24H+ BCD1 + BCD2 + DIABETE + RACE+STATIN + AGE + BMI,random = ~ 1|ID,data=nas)
+
+#summary(mod1)
+
+summary(mod1)$tTable[2:4,-3] %>% 
+  kable() %>% 
+  kable_styling()
+```
+
+```{r lagbc, fig.cap= "Lag effects for black carbon on log(HDL)"}
+## lag plots for BC
+lag_plot <- tidy(mod1,effects = "fixed")[2:4,]
+lag_plot$term <- factor(c("Lag 0", "Lag 1", "Lag 2"), levels=c("Lag 0", "Lag 1", "Lag 2"))
+
+
+dwplot(lag_plot) +  
+  geom_vline(xintercept=0, color="darkgray", linetype=2) + 
+  coord_flip() + 
+  scale_y_discrete(limits=(levels(lag_plot$term))) + 
+  scale_color_manual(values="#0066CC") +  
+  ggtitle('The lag effects of black carbon on log(HDL in mg/dL)') +  labs(y = 'Black carbon', x= "Coefficient")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 12),
+    legend.position='none')
+```
+
+## Effect and lag effect of daily ambient temperature
+
+Neither of the lag ambient temperature were significant predictors of the outcome. Linear effect might mask the curvature relationship.
+
+```{r modeltemp}
+mod2 <- lme(log(HDL)~TEMPC24H+ TMPCD1 + TMPCD2 + DIABETE + STATIN + RACE+ AGE + BMI,random = ~ 1|ID,data=nas)
+
+#summary(mod2)
+
+summary(mod2)$tTable[2:4,-3] %>% 
+  kable() %>% 
+  kable_styling()
+```
+
+
+```{r lagtemp, fig.cap= "Lag effects for black carbon on log(HDL)"}
+## lag plots for BC
+lag_plot2 <- tidy(mod2,effects = "fixed")[2:4,]
+lag_plot2$term <- factor(c("Lag 0", "Lag 1", "Lag 2"), levels=c("Lag 0", "Lag 1", "Lag 2"))
+
+
+dwplot(lag_plot2) +  
+  geom_vline(xintercept=0, color="darkgray", linetype=2) + 
+  coord_flip() + 
+  scale_y_discrete(limits=(levels(lag_plot2$term))) + 
+  scale_color_manual(values="#66CC99") +  
+  ggtitle('The lag effects of black carbon on log(HDL in mg/dL)') +  labs(y = 'Temperature', x= "Coefficient")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 12),
+    legend.position='none')
+```
