@@ -41,9 +41,9 @@ opts_chunk$set(
 
 ## Background
 
-High-density lipoprotein (HDL) cholesterol is known as the 'good' cholesterol because it helps remove other forms of cholesterol from your bloodstream. Higher levels of HDL cholesterol are associated with a lower risk of heart disease.
+High-density lipoprotein (HDL) cholesterol is known as the 'good' cholesterol because it helps remove other forms of cholesterol from bloodstream. Higher levels of HDL cholesterol are associated with a lower risk of heart disease.
 
-Air pollution is known to be one of the leading causes of cardiovascular disease. Emerging evidence suggests that particulate-mediated HDL (high-density lipoprotein) dysfunction might be a novel mechanism linking air pollution exposure to adverse cardiovascular effects.However, few studies have evaluated the impact of traffic-related air pollution exposure (black carbon, nitrogen dioxide). Similarly, temperature has been linked to cardiovascular disease, but little is known about the underlying mechanisms.
+Air pollution is known to be one of the leading causes of cardiovascular disease. Emerging evidence suggests that particulate-mediated HDL dysfunction might be a novel mechanism linking air pollution exposure to adverse cardiovascular effects.However, few studies have evaluated the impact of traffic-related air pollution exposure (black carbon, nitrogen dioxide). Similarly, temperature has been linked to cardiovascular disease, but little is known about the underlying mechanisms.
 <br>
 
 ## Research objectives and questions
