@@ -1,0 +1,17 @@
+dplyr
+ggplot2
+ggpubr
+tidyr
+data.table
+lubridate
+skimr
+table1
+kableExtra
+plotly
+DT
+knitr
+nlme
+broom.mixed
+dotwhisker
+ggeffects
+sjPlot

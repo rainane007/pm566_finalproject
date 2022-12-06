@@ -1,0 +1,610 @@
+---
+title: "Association between ambient black carbon and temperature and High-density lipoprotein"
+author: "Yuhong Hu"
+output: bookdown::pdf_document2
+geometry: margin=1.5cm
+---
+
+```{r setup, message=FALSE, echo=FALSE, warning=FALSE}
+
+library(dplyr)
+library(ggplot2)
+library(ggpubr)
+library(tidyr)
+library(data.table)
+library(lubridate)
+library(skimr)
+library(table1)
+library(kableExtra)
+library(plotly)
+library(DT)
+library(knitr)
+library(nlme)
+library(broom.mixed)
+library(dotwhisker)
+library(ggeffects)
+library(sjPlot)
+library(knitr)
+
+# INITALIZE CODE CHUNK OPTIONS
+opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  eval=TRUE,
+  echo = FALSE,
+  cache = TRUE,
+  fig.align = 'center',
+  out.width = "100%",
+  class.source = "code-r")
+```
+
+# Introduction
+<br>
+
+High-density lipoprotein (HDL) cholesterol is known as the 'good' cholesterol because it helps remove other forms of cholesterol from bloodstream. Higher levels of HDL cholesterol are associated with a lower risk of heart disease.
+
+Air pollution is known to be one of the leading causes of cardiovascular disease. Emerging evidence suggests that particulate-mediated HDL dysfunction might be a novel mechanism linking air pollution exposure to adverse cardiovascular effects.However, few studies have evaluated the impact of traffic-related air pollution exposure (black carbon, nitrogen dioxide). Similarly, temperature has been linked to cardiovascular disease, but little is known about the underlying mechanisms.
+
+Given the background, the project investigated the association between acute exposure to ambient black carbon (one source of traffic-related air pollution) and ambient temperature and HDL level. Additionally, to account for potential latency in HDL level changes, the project also assessed the association between 1-day and 2-day lag exposure and HDL level. Furthermore, the project also explored the effect modification by potential risk factors for the (lag) association of interest.
+<br>
+
+# Method
+<br>
+
+## Dataset and study population
+
+For data disclosure issue,the project was based on part of the Veterans Administration Normative Aging Study (NAS), which could be used for class. NAS was  a longitudinal study established in 1963, the study enrolled 2,280 men from the Greater Boston area, who were aged between 21 to 80 and were determined to be free of known chronic medical conditions by an initial health screening. Participants visited the study center repeatedly for physical examinations, blood pressure measurements, blood sample collection, and questionnaires approximately every four years. Blood samples were used for lipid analysis.
+
+During the follow-up period, black carbon (BC) was measured at a central monitoring site located on the roof of Countway Library, Harvard Medical School, in Boston, MA, temperature was also collected. Single day lags were computed for these pollutants and meteorological variables from the same day of health visits and up to 2 days before the visit. 
+
+```{r EDA,results='hide'}
+nas_hdl <- readRDS("nas_hdl.rds")
+
+# Look at the dimension of the dataset and check the missing values/implausible values
+str(nas_hdl)
+length(unique(nas_hdl$ID))
+# skim(nas_hdl)
+
+#Exclude missing values and double check the final dataset
+nas <- na.omit(nas_hdl)
+# length(unique(nas$ID))
+# skim(nas)
+# summary(nas$YEAR)
+```
+
+The dataset included a subset of 981 subjects with a total of 2483 observations. As NAS dataset was well-curated, so the dataset was pretty clean and less subject to missing data issue. For total of 31 variable, `RACE` had 29 missing observations, and `NEDUC` had 1 missing value. By looking at the summary statistics of each variable, we did not observe any implausible value for continuous variable or wrongly-coded value for categorical variable. Therefore, we simply excluded the observations with missing observations, as the missing data issue here is trivial. The final main dataset had 968 subjects with a total of 2453 observations from 1995 to 2011.
+<br>
+
+## Data wrangling and transformation
+
+We first create a new categorical variable `hdlcat` to divide the HDL level into 2 categories based on clinical recommendation. For easy plotting and modeling, we also level and label the categorical variable. For tabling summary statistics, we created label for key variables. In one of the result section, we would like to show the univariate association of interest by black carbon/temperature on the same day of each visit (`lag0`), black carbon/temperature on the previous 1 day of each visit (`lag1`), black carbon/temperature on the previous 2 days of each visit (`lag2`). However, the lag exposure measures were storaged in 'wide' format, thus, we transformed the original dataset (one subject per row) into 'long' dataset (one time per row, each subject may have muptiple rows) for easy plotting. The ambient black carbon and temperature exposure were the same for subjects who took hospital vist on the same day, thus, we had duplicates of the two exposure in the dataset. To plot time series of temperature and black carbon during following, we created dataset without duplicates for variables `BC24H` and `TEMPC24H`.Last but not least, the dataset produced without further usage was removed to keep environment tidy.
+<br>
+
+The packages used for EDA was skimr; The packages used for data wrangling and transformation were dplyr, tidyr; The packages used for visulization were ggplot2, ggpubr, table1, kableExtra.
+
+```{r wrangling,results='hide'}
+# create a vis variable to indicate the visit sequence for each subject for plotting and descriptive statistics
+# nas <- nas %>% 
+#   arrange(ID,VISIT) %>% 
+#   group_by(ID) %>% 
+#   mutate(vis = row_number()) %>% 
+#   ungroup()
+
+# Level and label the categorical variable for plotting
+quantile(nas$AGE)
+nas <- nas %>% 
+  mutate(hdlcat = factor(case_when(HDL>=40~2,HDL<40~1),
+                         levels = c(1,2),
+                         labels=c('At risk (<40)','Normal (>=40)')),
+         bmicat = factor(case_when(BMI>30~4,(BMI>25&BMI<=30)~2,(BMI>18.5&BMI<=25)~2,BMI<=18.5~1),
+                         levels = c(1,2,3,4),
+                         labels=c('Underweight','Normal','Overweight','Obese')),
+         agecat = factor(case_when(AGE>=73~2,AGE<73~1),
+                         levels = c(1,2),
+                         labels=c('<73 yrs','>=73 yrs')))
+
+nas <- nas %>% 
+  mutate(WARMCOLD = factor(WARMCOLD,levels = c(0,1),labels = c('Cold','Warm')),
+         DIABETE = factor(DIABETE,levels = c(0,1),labels = c('No','Yes')),
+         STATIN = factor(STATIN,levels = c(0,1),labels = c('No','Yes')),
+         HT = factor(HT,levels = c(0,1),labels = c('No','Yes')),
+         RACE = factor(RACE,levels = c(1,2,3,4,5),labels = c('White','Black','Hispanic White','Hispanic Black','American Indian')),
+         SMK = factor(SMK,levels = c(1,3,4),labels = c('Never','Current','Former')))
+
+# Label variable
+label(nas$WARMCOLD) <- 'SEASON'
+label(nas$STATIN) <- 'STATIN USE'
+label(nas$SMK) <- 'SMOKING STATUS'
+label(nas$BC24H) <- 'SAME DAY BLACK CARBON (ug/m3)'
+label(nas$TEMPC24H) <- 'SAME DAY TEMPERATURE (°C)'
+label(nas$AGE) <- 'AGE (years)'
+label(nas$BMI) <- 'BMI (kg/m2)'
+label(nas$bmicat) <- 'BMI CATEGORY'
+```
+
+
+```{r transformation}
+# Create long format dataset
+nas_long1 <- gather(nas, lag, BC, BC24H:BCD2)
+
+nas_long1 <- nas_long1 %>% 
+  mutate(lag = case_when(lag=='BC24H'~'lag0',lag=='BCD1'~'lag1',lag=='BCD2'~'lag2'))
+
+nas_long2 <- gather(nas, lag, Temp, TEMPC24H:TMPCD2)
+
+nas_long2 <- nas_long2 %>% 
+  mutate(lag = case_when(lag=='TEMPC24H'~'lag0',lag=='TMPCD1'~'lag1',lag=='TMPCD2'~'lag2'))
+
+nas_long <- merge(nas_long1,nas_long2,sort=TRUE)
+
+
+# Create dataset without duplicate exposure
+nas$date <- as.Date(nas$DATE,origin='1960-01-01')
+
+nas_BC <- nas %>% 
+  distinct(date,BC24H)
+
+nas_TM <- nas %>% 
+  distinct(date,TEMPC24H)
+
+# clean the unnecesary dataset
+rm(nas_long1)
+rm(nas_long2)
+```
+
+<br>
+
+# Results
+<br>
+
+## Descriptive statistics
+
+The study included 968 subjects with a total of 2453 observations from 1995 to 2011. According to clinical cutoff, males with less than 40 mg/dL HDL was at risk of cardiovascular disease, and HDL level of 40 mg/dL or above was normal for males. Among 2453 visits, HDL levels were below this clinical cutoff for 729 visits. The Table \@ref(tab:table1)  showed the basic summary statistics of key variables by the two levels of HDL. Participants' visits of normal HDL had lower `BMI`, lower daily `black carbon`, and lower daily `temperature`, compared to participants' visits with HDL below the cutoff. The proportion of `obeses` was higher in participants' visits with HDL at risk. The proportion of `diabetes` was lower in participants' visits of normal HDL. During the `cold season`, the HDL levels were more likely to be above the cutoff than during the `warm season`.
+
+We also explore the temporal patterns of HDL levels, daily daily ambient black carbon and daily ambient temperature during follow-up (Figure \@ref(fig:timeseries)). The scatterplots showed the seasonal pattern of the variables and the smooth indicated potential long-term temporal trends over study period. We did not observe a seasonal pattern of population HDL level, but the smooth curve suggested that the HDL level among the participants' visits increased from 1995 to 2000, remained stable from 2000 to 2005, and began fluctuated from 2005 to 2011. In general, the ambient black carbon level has decrease during follow-up, from 1995 to 2005, and remained stable afterwards.Besides, regular seasonal fluctuation was observed for ambient temperature during follow-up, shown by dots. No long-term trend of ambient temperature was observed.
+
+\begin{center}
+```{r table1}
+table1(~AGE+BMI+bmicat+RACE+STATIN+DIABETE+WARMCOLD+SMK+BC24H+TEMPC24H|hdlcat,data=nas) %>% 
+  kable(booktabs = T,caption = 'Summary Statistics of (repeated) measurement of characterstics by HDL level')
+```
+\end{center}
+
+```{r timeseries, fig.height=5,fig.cap= "Temporal trends of daily HDL, daily ambient black carbon and  temperature (1995-2011)"}
+trendhdl <- nas %>% 
+  ggplot(aes(x=date, y=HDL))+
+  geom_smooth(color='#9999CC')+
+  geom_point(color='#9999CC',alpha=0.2,size=1)+
+  labs(title = "HDL level", x  = "Date", y = "HDL (mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10))
+
+trendbc <- nas_BC %>% 
+  ggplot(aes(x=date, y=BC24H))+
+  geom_point(color='#0066CC',alpha=0.4,size=1)+
+  geom_smooth(color='#0066CC')+
+  labs(title = "Black carbon", x  = "Date", y = "Black carbon (ug/m3)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10))
+
+trendtemp <- nas_TM %>% 
+  ggplot(aes(x=date, y=TEMPC24H))+
+  geom_point(color="#66CC99",alpha=0.4,size=1)+
+  geom_smooth(color="#66CC99")+
+  labs(title = "Temperature", x  = "Date", y = "Temperature (°C)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10))
+
+ggarrange(trendhdl, trendbc, trendtemp,
+                    labels = c("A", "B","C"),
+                    ncol = 3, nrow = 1)
+```
+
+To further explore whether some demographic and physiological variables were associated with HDL levels, we displayed violin plots with boxplots (categorical variables) and scatterplots with linear regression lines (continuous variables) to show the distribution of HDL by different levels of potential risk factors, and to identify risk factors of HDL among NAS population (Figure \@ref(fig:riskfactor)). For categorical variables, the different shapes of violin were observed for different levels of Statin use, diabetes status, and race. The heterogeneity of distribution of HDL was most appreciable for different races. We observed that the distribution of continuous HDL levels was narrower for Statin users and diabetes compared to non-Statin-users and non-diabetes. However, we did not observe distinct patterns of distribution of HDL for within season, smoking status, days of the week. For continuous variables, age was slightly positively associated with HDL (r = 0.092, p-value < 0.05), and BMI was moderately negatively associated with HDL (r = -0.27, p-value < 0.05).
+
+```{r riskfactor,fig.height=14,fig.width=10,fig.cap='Distribution of HDL by different levels of risk factors'}
+#risk factor of HDL-statin
+statin <- nas %>%
+  ggplot(aes(y=HDL,x=STATIN,fill=STATIN))+
+  geom_violin(alpha=0.4)+
+  geom_boxplot(width=0.1, fill="white",color='grey')+
+  labs(title="Distribution of HDL by Statin use",
+       y = "HDL (mg/dL)",
+       fill = "Statin use")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    legend.position="bottom",
+    axis.text=element_text(size=6))+
+  scale_fill_brewer(palette="Spectral")
+
+
+#risk factor of HDL-diabetes
+diabetes <- nas %>%
+  ggplot(aes(y=HDL,x=DIABETE,fill=DIABETE))+
+  geom_violin(alpha=0.4)+
+  geom_boxplot(width=0.1, fill="white",color='grey')+
+  labs(title="Distribution of HDL by diabetes status",
+       y = "HDL (mg/dL)",
+       fill = "Diabetes")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    legend.position="bottom",
+    axis.text=element_text(size=6))+
+  scale_fill_manual(values=c("#CC6666", "#9999CC"))
+
+
+#risk factor of HDL-race
+race <- nas %>%
+  ggplot(aes(y=HDL,x=RACE,fill=RACE))+
+  geom_violin(alpha=0.4)+
+  geom_boxplot(width=0.1, fill="white",color='grey')+
+  labs(title="Distribution of HDL by Race",
+       y = "HDL (mg/dL)",
+       fill = "RACE")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    legend.position="bottom",
+    axis.text=element_text(size=6))+
+  scale_fill_brewer(palette="Spectral")
+
+
+#risk factor of HDL-season
+season <- nas %>%
+  ggplot(aes(y=HDL,x=WARMCOLD,fill=WARMCOLD))+
+  geom_violin(alpha=0.4)+
+  geom_boxplot(width=0.1, fill="white",color='grey')+
+  labs(title="Distribution of HDL by warm/cold seasons",
+       y = "HDL (mg/dL)",
+       fill = "Season")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    legend.position="bottom",
+    axis.text=element_text(size=6))+
+  scale_fill_brewer(palette="Spectral")
+
+#risk factor of HDL-SMK
+smk <- nas %>%
+  ggplot(aes(y=HDL,x = SMK,fill=SMK))+
+  geom_violin(alpha=0.4)+
+  geom_boxplot(width=0.1, fill="white",color='grey')+
+  labs(title="Distribution of HDL by smoking status",
+       x = "HDL (mg/dL)",
+       fill = "Smoking")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    legend.position="bottom",
+    axis.text=element_text(size=6))+
+  scale_fill_manual(values=c("#CC6666", "#9999CC", "#66CC99"))
+
+#risk factor of HDL-HT
+ht <- nas %>%
+  ggplot(aes(y=HDL,x =HT,fill=HT))+
+  geom_violin(alpha=0.4)+
+  geom_boxplot(width=0.1, fill="white",color='grey')+
+  labs(title="Distribution of HDL by hypertension status",
+       y = "HDL (mg/dL)",
+       fill = "Hypertension")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    legend.position="bottom",
+    axis.text=element_text(size=6))+
+  scale_fill_brewer(palette="Spectral")
+
+
+#risk factor of HDL-dow
+dow <- nas %>%
+  ggplot(aes(y=HDL,x=WKDAY,fill=WKDAY))+
+  geom_violin(alpha=0.4)+
+  geom_boxplot(width=0.1, fill="white",color='grey')+
+  labs(title="Distribution of HDL by days of the week",
+       y = "HDL (mg/dL)",
+       fill = "Days of the week")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 12),
+    legend.position="bottom",
+    axis.text=element_text(size=6))+
+  scale_fill_brewer(palette="Spectral")
+
+
+#risk factor of HDL-age
+age <- nas %>%
+  ggplot(aes(x=AGE,y=HDL))+
+  geom_point(size=0.5,alpha=0.3,color='#66CC99')+
+  geom_smooth(method = lm,color='#336633')+
+  stat_cor(method = "pearson", label.x = 80, label.y = 15)+
+  labs(title="Correlation between HDL and age",
+        x ="Age (years)  ", y = "HDL (mg/dL)") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    axis.text=element_text(size=6))
+
+
+#risk factor of HDL-BMI
+bmi <- nas %>%
+  ggplot(aes(x=BMI,y=HDL))+
+  geom_point(size=0.5,alpha=0.3,color='#CC6666')+
+  geom_smooth(method = lm,color='#D55E00')+
+  stat_cor(method = "pearson", label.x = 40, label.y = 15)+
+  labs(title="Correlation between HDL and BMI",
+        x ="BMI (kg/m2)  ", y = "HDL (mg/dL)") +
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    axis.text=element_text(size=6))
+
+
+ggarrange(statin, diabetes, race,smk,season,dow,age,bmi,
+                    labels = c("A", "B","C","D","E","F","G","H","I"),
+                    ncol = 2,nrow=4)
+
+```
+
+## Univariate relationship between daily (lag) ambient black carbon, temperature and HDL
+
+The distribution of HDL was not normal with right skewness (Figure \@ref(fig:distribution)).The normality was achieved by log transformation of HDL (Figure \@ref(fig:distribution)).Therefore, we used log(HDL) as outcome measure to assess the relationship of interest in this study.
+
+```{r distribution,fig.height=5,fig.width=10,fig.cap='Distribution of HDL and log(HDL)'}
+distribution1 <- nas %>% 
+  ggplot() + 
+  geom_histogram(aes(x=HDL, y=..density..), fill="#66CC99", alpha=0.4,bins=20) + 
+  geom_density(aes(x=HDL),color = '#336633',alpha=0.4)+
+  labs(title = "Distribution of HDL", x  = "HDL (mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10))
+
+distribution2 <-nas %>% 
+  ggplot() + 
+  geom_histogram(aes(x=log(HDL), y=..density..), fill="orange", alpha=0.4,bins=20) + 
+  geom_density(aes(x=log(HDL)),color = '#D55E00',alpha=0.4)+
+  labs(title = "Distribution of log(HDL)", x  = "log(HDL, in mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10))
+
+ggarrange(distribution1, distribution2,
+                    labels = c("A", "B"),
+                    ncol = 2, nrow = 1)
+```
+
+The effect and lag effects of ambient black carbon on the HDL levels was shown in Figure \@ref(fig:unbc) and Figure \@ref(fig:unbcm). The pattern of associations were similar at lag0 and lag1, which were different at lag2. In terms of the overall association, same day black carbon (lag0) , previous day black carbon (lag1), and previous two days black carbon (lag2) seemed to inversely and linearly associated with HDL level, if ignoring the wide confidence interval due to the sparse data for observations with black carbon concentrations above 2 ug/m^3^. The magnitude of the overall associations were similar across the lags. Effect modification could be shown by different slopes of the subgroup association (Figure \@ref(fig:unbcm)).Generally, in groups of diabetes, non-Statin-uses, and -relatively lower age, their subgroup associations were similar to the overall associations across lags. Effect heterogeneity of diabetes was observed for the association of interest at lag2, where null association was found for diabetes. For easier interpretation, we dichotomized the continuous age using median age (73yrs). Among people with greater age, the association of interest was stronger than people with age below median age at lag0 and lag1, whereas we found stronger negative association among people below the median age at lag2. No clear patterns of effect heterogeneity were shown for Statin use (mixed result). We did not observe effect heterogeneity by BMI categories, as was displayed by the same slopes for subgroup association within the same lag. 
+
+```{r unbc, fig.cap= "Overall relationship between daily ambient black carbon and log(HDL) for each lag "}
+# Relationship between black carbon and HDL for each lag
+bc <- nas_long %>% 
+  ggplot()+
+  # geom_point(aes(x=BC,y=log(HDL),color=lag),size=0.2,alpha=0.6)+
+  geom_smooth(aes(x=BC,y=log(HDL),color=lag),size = 0.5)+
+  facet_wrap(~lag)+
+  labs(title = "Relationship between daily black carbon and log(HDL) for each lag ", x  = "Black carbon (ug/m3)", y = "log(HDL, in mg/dL)",color='lag')+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    text = element_text( size = 8))
+
+bc
+```
+
+
+```{r, unbcm,fig.cap= "Relationship between daily ambient black carbon and log(HDL) for each lag by different risk factors"}
+bcdia <- nas_long %>% 
+  ggplot()+
+  geom_smooth(aes(x=BC,y=log(HDL),color=DIABETE,fill=DIABETE),size = 0.5)+
+  facet_wrap(~lag)+
+  labs(title = "Effect heterogeneity by diabetes", x  = "Black carbon (ug/m3)", y = "log(HDL, in mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    text = element_text( size = 8))
+
+
+bcsta <- nas_long %>% 
+  ggplot()+
+  geom_smooth(aes(x=BC,y=log(HDL),color=STATIN,fill=STATIN),size = 0.5)+
+  facet_wrap(~lag)+
+  labs(title = "Effect heterogeneity by statin use", x  = "Black carbon (ug/m3)", y = "log(HDL, in mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    text = element_text( size = 8))
+
+
+bcbmi <- 
+  nas_long %>% 
+  filter(bmicat!='Underweight') %>% ## we do not have enough sample size for underweight
+  ggplot()+
+  geom_smooth(aes(x=BC,y=log(HDL),color=bmicat,fill=bmicat),size = 0.5)+
+  facet_wrap(~lag)+
+  labs(title = "Effect heterogeneity by BMI", x  = "Black carbon (ug/m3)", y = "log(HDL, in mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    text = element_text( size = 8))
+
+bcage <- nas_long %>% 
+  ggplot()+
+  geom_smooth(aes(x=BC,y=log(HDL),color=agecat,fill=agecat),size = 0.5)+
+  facet_wrap(~lag)+
+  labs(title = "Effect heterogeneity by median age ", x  = "Black carbon (ug/m3)", y = "log(HDL, in mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    text = element_text( size = 8))
+
+
+ggarrange(bcdia, bcsta,bcbmi,bcage,
+                    labels = c("A", "B",'C','D'),
+                    ncol = 2, nrow = 2)
+```
+
+The effect and lag effects of temperature on the HDL levels was shown in Figure \@ref(fig:untemp) and Figure \@ref(fig:untempm). The pattern of associations were similar across three lags. In terms of overall association, the relationship was inverted U-shape, with average HDL increasing below around 10 °C and decreasing between temperatures 10 and 30 °C. The magnitude of the overall association was similar across the lags. Effect modification could be shown by different slopes of the subgroup association (Figure \@ref(fig:untempm)). Generally, in groups of diabetes, non-Statin-uses, and -relatively lower age, their subgroup associations were similar to the overall associations across lags. Effect heterogeneity of diabetes was observed, where null association was found for diabetes for all three lags assesed. For people using Statin, there was an inverse association between HDL and temperature. However, among people without Statin usage, the relationship was inverted U-shape, with average HDL increasing below around 10 °C and decreasing between temperatures 10 and 30 °C. Among people with age greater than 73 yrs, there was an inverse association between HDL and temperature. However, among people with age lower than median, the relationship was inverted U-shape, with average HDL increasing below around 10 °C and decreasing between temperatures 10 and 30 °C. No clear pattern were shown for BMI. 
+
+```{r, untemp,fig.cap= "Overall relationship between daily temperature and log(HDL) for each lag "}
+# Relationship between temperature and HDL for each lag
+temp <- nas_long %>% 
+  ggplot()+
+  # geom_point(aes(x=Temp,y=log(HDL),color=lag),size=0.2,alpha=0.6)+
+  geom_smooth(aes(x=Temp,y=log(HDL),color=lag),size = 0.5)+
+  facet_wrap(~lag)+
+  labs(title = "Relationship between daily temperature and log(HDL) for each lag ", x  = "Temperature (°C)", y = "log(HDL, in mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    legend.text = element_text( size = 8))
+
+temp
+```
+
+
+```{r, untempm,fig.cap= "Relationship between daily temperature and log(HDL) for each lag by different risk factors"}
+tempdia <- nas_long %>% 
+  ggplot()+
+  # geom_point(aes(x=Temp,y=log(HDL),color=lag),size=0.2,alpha=0.6)+
+  geom_smooth(aes(x=Temp,y=log(HDL),color=DIABETE,fill=DIABETE),size = 0.5)+
+  facet_wrap(~lag)+
+  labs(title = "Effect heterogeneity by diabetes", x  = "Temperature (°C)", y = "log(HDL, in mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    text = element_text( size = 8))
+
+tempsta<- nas_long %>% 
+  ggplot()+
+  # geom_point(aes(x=Temp,y=log(HDL),color=lag),size=0.2,alpha=0.6)+
+  geom_smooth(aes(x=Temp,y=log(HDL),color=STATIN,fill=STATIN),size = 0.5)+
+  facet_wrap(~lag)+
+  labs(title = "Effect heterogeneity by Statin use ", x  = "Temperature (°C)", y = "log(HDL, in mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    text = element_text( size = 8))
+
+tempbmi<- nas_long %>% 
+  filter(bmicat!='Underweight') %>% 
+  ggplot()+
+  # geom_point(aes(x=Temp,y=log(HDL),color=lag),size=0.2,alpha=0.6)+
+  geom_smooth(aes(x=Temp,y=log(HDL),color=bmicat,fill=bmicat),size = 0.5)+
+  facet_wrap(~lag)+
+  labs(title = "Effect heterogeneity by BMI", x  = "Temperature (°C)", y = "log(HDL, in mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    text = element_text( size = 8))
+
+tempage<- nas_long %>% 
+  ggplot()+
+  # geom_point(aes(x=Temp,y=log(HDL),color=lag),size=0.2,alpha=0.6)+
+  geom_smooth(aes(x=Temp,y=log(HDL),color=agecat,fill=agecat),size = 0.5)+
+  facet_wrap(~lag)+
+  labs(title = "Effect heterogeneity by median age", x  = "Temperature (°C)", y = "log(HDL, in mg/dL)")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 10),
+    text = element_text( size = 8))
+
+ggarrange(tempdia, tempsta,tempbmi,tempage,
+                    labels = c("A", "B",'C','D'),
+                    ncol = 2, nrow = 2)
+```
+
+# Conclusion
+
+The relationship between same-day and lagged temperature and HDL levels was inverted U-shape, with average HDL increasing below around 10 °C and decreasing between temperatures 10 and 30 °C. In contrast, we found inverse and linear association between same-day and lagged exposure of ambient black carbon and HDL levels, this was further supported by the result of linear mixed effect model where we did detect a significant effect of same-day black carbon and its two lags on HDL (See Appendix). Furthermore, diabetes, Statin use, and age seemed to modify the association between daily temperature/black carbon and HDL levels across all the lags assessed, suggesting it is important to assess the risk of cardiovascular disease mediated by temperature-HDL changes in susceptible populations to achieve better clinical intervention. To further understand the (lag) effect of acute exposure to black carbon and temperature on HDL-mediated cardiovascular diseases, mixed effect models and mediation analyses were needed.
+
+# Reference
+
+1. Li J, Zhou C, Xu H, Brook RD, Liu S, Yi T, Wang Y, Feng B, Zhao M, Wang X, Zhao Q, Chen J, Song X, Wang T, Liu S, Zhang Y, Wu R, Gao J, Pan B, Pennathur S, Rajagopalan S, Huo Y, Zheng L, Huang W. Ambient Air Pollution Is Associated With HDL (High-Density Lipoprotein) Dysfunction in Healthy Adults. Arterioscler Thromb Vasc Biol. 2019 Mar;39(3):513-522. doi: 10.1161/ATVBAHA.118.311749. PMID: 30700134.
+
+2. Halonen JI, Zanobetti A, Sparrow D, Vokonas PS, Schwartz J. Outdoor temperature is associated with serum HDL and LDL. Environ Res. 2011 Feb;111(2):281-7. doi: 10.1016/j.envres.2010.12.001. Epub 2010 Dec 18. PMID: 21172696; PMCID: PMC4437587.
+
+3. Park SK, O'Neill MS, Vokonas PS, Sparrow D, Schwartz J. Effects of air pollution on heart rate variability: the VA normative aging study. Environ Health Perspect. 2005 Mar;113(3):304-9. doi: 10.1289/ehp.7447. PMID: 15743719; PMCID: PMC1253756.
+
+4. https://www.mayoclinic.org/diseases-conditions/high-blood-cholesterol/in-depth/hdl-cholesterol/art-20046388
+
+\pagebreak
+
+# Appendix
+
+## Results based on linear mixed effect model
+
+For further exploration of adjusted association of interest, we performed linear mixed effect model with the simplest distributed lag structure (simultaneous adjustment), to account for correlation between repeated measure and lag effects. For parsimony, we simply adjusted for covariates that we identified as major risk factors (diabetees, race, statin use, age, and BMI) in the NAS population in the previous section.
+
+Significant effect and lag effects of black carbon level on HDL level were observed (Table \@ref(tab:modelBC) and Figure \@ref(fig:lagbc)). For each lag, black carbon level was inversely associated with HDL. The decrease in HDL was more likely to be associated with the ambient black carbon level on the day of visit compared with the black carbon level on the days before the visits. Neither of the lag ambient temperature were significant predictors of the outcome (Table \@ref(tab:modeltemp) and Figure \@ref(fig:lagtemp)). Linear effect might mask the curvature relationship, which was shown in result section. Mixed effect models with GAM was needed for future studies.
+
+\pagebreak
+
+
+\begin{center}
+```{r modelBC}
+mod1 <- lme(log(HDL)~BC24H+ BCD1 + BCD2 + DIABETE + RACE+STATIN + AGE + BMI,random = ~ 1|ID,data=nas)
+
+#summary(mod1)
+
+summary(mod1)$tTable[2:4,-3] %>% 
+  kable(booktabs = T,caption = 'Effect estimates of the association between black carbon and log(HDL) for each lag')
+```
+\end{center}
+
+```{r lagbc, fig.cap= "Lag effects for black carbon on log(HDL)"}
+## lag plots for BC
+lag_plot <- tidy(mod1,effects = "fixed")[2:4,]
+lag_plot$term <- factor(c("Lag 0", "Lag 1", "Lag 2"), levels=c("Lag 0", "Lag 1", "Lag 2"))
+
+
+dwplot(lag_plot) +  
+  geom_vline(xintercept=0, color="darkgray", linetype=2) + 
+  coord_flip() + 
+  scale_y_discrete(limits=(levels(lag_plot$term))) + 
+  scale_color_manual(values="#0066CC") +  
+  ggtitle('The lag effects of black carbon on log(HDL in mg/dL)') +  labs(y = 'Black carbon', x= "Coefficient")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 12),
+    legend.position='none')
+```
+
+\begin{center}
+```{r modeltemp}
+mod2 <- lme(log(HDL)~TEMPC24H+ TMPCD1 + TMPCD2 + DIABETE + STATIN + RACE+ AGE + BMI,random = ~ 1|ID,data=nas)
+
+#summary(mod2)
+
+summary(mod2)$tTable[2:4,-3] %>% 
+  kable(booktabs = T,caption = 'Effect estimates of the association between temperature and log(HDL) for each lag')
+```
+\end{center}
+
+
+
+
+
+```{r lagtemp, fig.cap= "Lag effects for temperature on log(HDL)"}
+## lag plots for temp
+lag_plot2 <- tidy(mod2,effects = "fixed")[2:4,]
+lag_plot2$term <- factor(c("Lag 0", "Lag 1", "Lag 2"), levels=c("Lag 0", "Lag 1", "Lag 2"))
+
+
+dwplot(lag_plot2) + 
+  geom_vline(xintercept=0, color="darkgray", linetype=2) + 
+  coord_flip() + 
+  scale_y_discrete(limits=(levels(lag_plot2$term))) + 
+  scale_color_manual(values="#66CC99") +  
+  ggtitle('The lag effects of temperature on log(HDL in mg/dL)') +  labs(y = 'Temperature', x= "Coefficient")+
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 12),
+    legend.position='none')
+```
+
+
