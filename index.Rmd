@@ -7,6 +7,10 @@ output:
         toc_float: TRUE
 ---
 
+Please download the report from https://github.com/rainane007/pm566_finalproject/raw/main/report/report.pdf
+<br>
+<br>
+
 ```{r setup, message=FALSE, echo=FALSE, warning=FALSE}
 
 library(dplyr)
