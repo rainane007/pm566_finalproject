@@ -6,10 +6,11 @@ output:
         toc: TRUE
         toc_float: TRUE
 ---
+<br>
+Link to my pdf: [report](https://github.com/rainane007/pm566_finalproject/blob/main/report/report.pdf)       [[download]](https://github.com/rainane007/pm566_finalproject/raw/main/report/report.pdf)
+<br>
+<br>
 
-Please download the report from https://github.com/rainane007/pm566_finalproject/raw/main/report/report.pdf
-<br>
-<br>
 
 ```{r setup, message=FALSE, echo=FALSE, warning=FALSE}
 
